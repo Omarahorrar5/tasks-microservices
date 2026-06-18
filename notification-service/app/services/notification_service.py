@@ -1,6 +1,9 @@
+import logging
 from sqlalchemy.orm import Session
 from app.repositories.notification_repository import NotificationRepository
 from app.models.notification_model import Notification
+
+logger = logging.getLogger(__name__)
 
 VALID_PRIORITIES = {"low", "normal", "high"}
 VALID_CATEGORIES = {"general", "task", "hr", "system"}
@@ -13,16 +16,12 @@ class NotificationService:
     def create(self, user_id: str, message: str,
                category: str = "general", priority: str = "normal",
                source_event: str = None) -> Notification:
-
         if not message or not message.strip():
             raise ValueError("Message cannot be empty.")
-
         if not user_id or not user_id.strip():
             raise ValueError("user_id cannot be empty.")
-
         if priority not in VALID_PRIORITIES:
             raise ValueError(f"Priority must be one of: {sorted(VALID_PRIORITIES)}")
-
         if category not in VALID_CATEGORIES:
             raise ValueError(f"Category must be one of: {sorted(VALID_CATEGORIES)}")
 
@@ -57,3 +56,24 @@ class NotificationService:
 
     def count_unread(self, user_id: str) -> int:
         return self.repo.count_unread(user_id)
+
+    def create_from_event(self, event: dict):
+        event_type = event.get("event", "unknown")
+        user_id = event.get("assigned_to")
+        message = event.get("message")
+
+        if not user_id or not message:
+            logger.warning(f"[Kafka] Skipping malformed event: {event}")
+            return
+
+        priority = "high" if event_type == "task.created" else "normal"
+
+        logger.info(f"[Kafka] Creating notification for '{user_id}': {message}")
+
+        return self.create(
+            user_id=user_id,
+            message=message,
+            category="task",
+            priority=priority,
+            source_event=event_type,
+        )
